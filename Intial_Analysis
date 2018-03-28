@@ -1,0 +1,254 @@
+rm(list=ls())
+library(QuantPsyc)
+library("stringr")
+
+methods =  c("pearson", "kendall", "spearman")
+Disease = "CD"
+Tissue = "Whole_Blood"
+liab = read.table(paste("../GETX_",Disease,"_liab.txt",sep=""))
+
+#Gene = system(paste("zgrep 'ENSG00000167207.7' ",Tissue,"_Analysis.v6p.normalized.expression.bed",sep=""),intern=TRUE)	#NOD2
+
+#Gene = system(paste("zgrep 'ENSG00000111912' ",Tissue,"_Analysis.v6p.normalized.expression.bed.gz",sep=""),intern=TRUE)	#NCOA7
+
+Gene = read.table(gzfile(paste("Whole_Blood_Analysis.v6p.normalized.expression.bed.gz",sep="")),sep="\t",header=TRUE,check.names=FALSE,comment.char = "")
+
+Gene = strsplit(Gene,split="\t")[[1]]
+Names = system(paste("zcat ",Tissue,"_Analysis.v6p.normalized.expression.bed.gz | head -1",sep=""),intern=TRUE)
+Names = strsplit(Names,split="\t")[[1]]
+names(Gene)=Names
+Gene=Gene[5:length(Gene)]
+
+liab = liab[unlist(lapply(1:length(Gene),function(x) { grep(pattern=names(Gene)[x],x=as.character(liab[,1]))  } )),]
+
+Cov = read.table(paste("../GTEx_Analysis_v6p_eQTL_covariates/",Tissue,"_Analysis.v6p.covariates.txt",sep=""),header=TRUE)
+all.equal(do.call("rbind",str_split(names(Gene),"-"))[,2],substr(colnames(Cov)[2:ncol(Cov)],6,nchar(colnames(Cov)[2:ncol(Cov)])))
+all.equal(do.call("rbind",str_split(names(Gene),"-"))[,2],do.call("rbind",str_split(liab[,1],"-"))[,2])
+
+pca = read.table("~/Documents/gene_expression/54742/PhenoGenotypeFiles/RootStudyConsentSet_phs000424.GTEx.v6.p1.c1.GRU/GenotypeFiles/phg000520.v2.GTEx_MidPoint_Imputation.genotype-calls-vcf.c1/plink.eigenvec")
+remove = intersect(do.call("rbind",str_split(as.character(pca[pca[,3] < 0,1]),"-"))[,2],do.call("rbind",str_split(liab[,1],"-"))[,2])
+remove_index = unlist(lapply(remove,function(x) { grep(pattern=x,x=do.call("rbind",str_split(names(Gene),"-"))[,2]) }))
+
+
+Gene = Gene[-remove_index]
+rownames(liab)=1:nrow(liab)
+liab = liab[-remove_index,]
+Cov = Cov[,-1]
+Cov = Cov[,-remove_index]
+
+all.equal(do.call("rbind",str_split(names(Gene),"-"))[,2],substr(colnames(Cov)[1:ncol(Cov)],6,nchar(colnames(Cov)[1:ncol(Cov)])))
+all.equal(do.call("rbind",str_split(names(Gene),"-"))[,2],do.call("rbind",str_split(liab[,1],"-"))[,2])
+
+Cov_new = t(Cov)
+###########################################################
+#################### Model 1 ##############################
+###########################################################
+model = lm(as.numeric(Gene) ~ as.numeric(liab[,2]))
+summary(model)
+lm.beta(model)
+
+cor.test(x=as.numeric(liab[,2]) , y =as.numeric(Gene),method=methods[3],use="pairwise.complete.obs",exact=FALSE)
+###########################################################
+#################### Model 2 ##############################
+###########################################################
+#Model = lm(as.numeric(Gene) ~  Cov_new + as.numeric(liab[,2]))
+#summary(Model)
+#lm.beta(Model)
+
+###########################################################
+#################### Model 3 ##############################
+###########################################################
+residual_model = residuals(lm(as.numeric(Gene) ~ Cov_new)) 
+Model = lm(as.numeric(liab[,2]) ~ residual_model)
+summary(Model)
+lm.beta(Model) 
+
+cor.test(x = as.numeric(liab[,2]) , y = residual_model,method=methods[3],use="pairwise.complete.obs",exact=FALSE)
+###########################################################
+#################### Model 4 ##############################
+###########################################################
+#test = Cov_new[,which(summary(lm(as.numeric(Gene) ~ Cov_new))$coefficient[,4] < 0.05)-1]
+#Model = lm(as.numeric(Gene) ~ as.numeric(liab[,2]) + test)
+#summary(Model) 
+#lm.beta(Model)
+
+###########################################################
+#################### Model 5 ##############################
+###########################################################
+
+test = Cov_new[,which(summary(lm(as.numeric(Gene) ~ Cov_new))$coefficient[,4] < 0.05)-1]
+residual_model = residuals(lm(as.numeric(Gene) ~ test)) 
+Model = lm(as.numeric(liab[,2]) ~ residual_model )
+summary(Model)
+lm.beta(Model) 
+
+cor.test(x = as.numeric(liab[,2]) , y = residual_model,method=methods[3],use="pairwise.complete.obs",exact=FALSE)
+
+
+####################### Full ANalayis   ######################
+
+Tissue = system(paste("ls *_Analysis.v6p.normalized.expression.bed.gz | awk 'BEGIN {FS=\".\";} {print $1}'",sep=""),intern=TRUE)
+
+for(index in 2:length(Tissue))
+{
+print("Start Processing");
+print(Tissue[index])
+Gene = read.table(gzfile(paste(Tissue[index],".v6p.normalized.expression.bed.gz",sep="")),sep="\t",header=TRUE,check.names=FALSE,comment.char = "")
+methods =  c("pearson", "kendall", "spearman")
+Disease = "CD"
+liab = read.table(paste("../GETX_",Disease,"_liab.txt",sep=""))
+liab = liab[unlist(lapply(5:ncol(Gene),function(x) { grep(pattern=names(Gene)[x],x=as.character(liab[,1]))  } )),]
+
+Cov = read.table(paste("../GTEx_Analysis_v6p_eQTL_covariates/",Tissue[index],".v6p.covariates.txt",sep=""),header=TRUE)
+all.equal(substr(colnames(Gene)[5:ncol(Gene)],6,nchar(Gene)[5:ncol(Gene)]),substr(colnames(Cov)[2:ncol(Cov)],6,nchar(colnames(Cov)[2:ncol(Cov)])))
+
+pca = read.table("~/Documents/gene_expression/54742/PhenoGenotypeFiles/RootStudyConsentSet_phs000424.GTEx.v6.p1.c1.GRU/GenotypeFiles/phg000520.v2.GTEx_MidPoint_Imputation.genotype-calls-vcf.c1/plink.eigenvec")
+remove = intersect(do.call("rbind",str_split(as.character(pca[pca[,3] < 0,1]),"-"))[,2],do.call("rbind",str_split(liab[,1],"-"))[,2])
+remove_index = unlist(lapply(remove,function(x) { grep(pattern=x,x=do.call("rbind",str_split(colnames(Gene),"-"))[,2]) }))
+
+Gene = Gene[-remove_index]
+rownames(liab)=1:nrow(liab)
+liab = liab[-c(remove_index-4),]
+Cov = Cov[,-1]
+Cov = Cov[,-c(remove_index-4)]
+
+all.equal(do.call("rbind",str_split(colnames(Gene)[5:ncol(Gene)],"-"))[,2],substr(colnames(Cov)[1:ncol(Cov)],6,nchar(colnames(Cov)[1:ncol(Cov)])))
+all.equal(do.call("rbind",str_split(colnames(Gene)[5:ncol(Gene)],"-"))[,2],do.call("rbind",str_split(liab[,1],"-"))[,2])
+
+
+Cov_new = t(Cov)
+Model = NULL
+###########################################################
+#################### Models  ##############################
+###########################################################
+
+Function_Model = function(i,Model=1)
+{
+	if(Model == 1) {
+	Model = lm(as.numeric(Gene) ~ as.numeric(liab[,2]))
+	summary(Model)$coefficient[2,4]
+	} else if(Model == 2) {
+	Model = lm(as.numeric(Gene[i,5:ncol(Gene)]) ~ as.numeric(liab[,2]) + Cov_new)
+	summary(Model)$coefficient[2,4] 
+	} else if(Model == 3) {
+	residual_model = residuals(lm(as.numeric(Gene[i,5:ncol(Gene)]) ~ Cov_new)) 
+	Model = lm(residual_model ~ as.numeric(liab[,2]) )
+	summary(Model)$coefficient[2,4] 
+	} else if(Model == 4) {
+	lm_model = lm(as.numeric(Gene[i,5:ncol(Gene)]) ~ Cov_new,na.action=na.exclude)
+	residual_model = naresid(lm_model$na.action, lm_model$residuals) 
+	CD_model = cor.test(x = as.numeric(liab[,2]), y = residual_model,method=methods[3],use="pairwise.complete.obs",exact=FALSE)
+	c(CD_model$estimate,CD_model$p.value)
+	} else if(Model == 5) {
+	if(length(which(summary(lm(as.numeric(Gene[i,5:ncol(Gene)]) ~ Cov_new))$coefficient[,4] < 0.05)) > 0) {
+	test = Cov_new[,which(summary(lm(as.numeric(Gene[i,5:ncol(Gene)]) ~ Cov_new))$coefficient[,4] < 0.05)-1]
+	} else {
+		test = Cov_new	
+	}
+	
+	lm_model = lm(as.numeric(Gene[i,5:ncol(Gene)]) ~ test,na.action=na.exclude)
+	residual_model = naresid(lm_model$na.action, lm_model$residuals) 
+	CD_model = cor.test(x = as.numeric(liab[,2]), y = residual_model,method=methods[3],use="pairwise.complete.obs",exact=FALSE)
+	c(CD_model$estimate,CD_model$p.value)
+	} else {
+	print("Unknown Model specified!! , please try again with a valid mdel number")
+	}
+}
+
+
+pb <- txtProgressBar(min = 0, max = nrow(Gene), style = 3)  
+Model = unlist(lapply(1:nrow(Gene),function(x) { setTxtProgressBar(pb, x); summary(lm(as.numeric(Gene[x,5:ncol(Gene)]) ~ as.numeric(liab[,2]) + Cov_new))$coefficient[2,4] }))
+
+total = nrow(Gene)
+pb <- txtProgressBar(min = 0, max = total, style = 3)  
+Model_5 = NULL
+Model_5 = do.call("rbind",lapply(1:total,function(x) { setTxtProgressBar(pb, x); Function_Model(x,5) }))
+output = data.frame(Gene[,1:4],Model_5)
+colnames(output)[1] = "CHR"
+colnames(output)[6] = "pvalue"
+write.table(output,paste("Results/",Tissue[index],"_results_Europeans_Model_5.txt",sep=""),quote=FALSE,col.names=TRUE,row.names=FALSE)
+}
+
+#################### PCA GTEX  #########################
+
+png("../PCA_plot_GTEx.png",width=290,height=210,units="mm",res=450)
+plot(pca[,3:4],pch=21,bg=as.factor(pca$POP))
+legend("bottomright",unique(pca$POP),pch=19,col=as.factor(unique(pca$POP)))
+points(pca[1:450,3:4],col="purple1",pch=19)
+points(pca[pca[,1] %in% outliers,3:4],col="brown",pch=19)
+dev.off()
+
+library('biomaRt')
+mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+###################### PLOTS #########################
+for(i in 1:44)
+{ 
+print(paste(i," ",Tissues[i],sep=""))
+png(paste("PLOTS_FOLDER/plot_GTEx_",Tissues[i],"_vs_CD_liab.png",sep=""),width=390,height=210,units="mm",res=450)
+
+P1 = qqunif(data[[i]]$pvalue);
+plot(P1$x,P1$y,xlab="-log10(Expected)",ylab="-log10(Observed)",main=Tissues[i])
+abline(0,1,col="red")
+Top_Genes = data[[i]][data[[i]]$qvalue <= 0.2,]
+if(nrow(Top_Genes) > 0)
+{
+	Top_Genes = Top_Genes[order(Top_Genes$pvalue),]
+	genes = do.call("rbind",strsplit(as.character(Top_Genes$gene_id),"[.]"))[,1]
+	Top_Genes$gene_id = genes
+	G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id", "hgnc_symbol", "description"),values=genes,mart= mart)
+	rownames(G_list)=as.character(G_list[,1])
+	G_list[as.character(Top_Genes$gene_id),]
+
+	pointLabel(head(sort(P1$x,decreasing=TRUE),n=nrow(Top_Genes)),-log10(Top_Genes$pvalue),labels=as.character(G_list[,2]),cex=1,allowSmallOverlap=FALSE,doPlot=TRUE,method="GA",offset = 0)
+}
+dev.off()
+}
+
+loop = which(unlist(lapply(lapply(1:44,function(x) {  data[[x]][data[[x]]$qvalue <= 0.2,] }),nrow)) > 0)
+
+model_Number = 4
+data = lapply(system(paste("ls *_Model_",model_Number,".txt",sep=""),intern=TRUE),read.table,header=TRUE)
+data = lapply(data,function(x) { tmp=x[x[,1] != "X",]; tmp; })
+data = lapply(data,function(x) { x$qvalue = qvalue(x$pvalue)$qvalue; x })
+ Tissues = do.call("rbind",strsplit(system(paste("ls *_Model_",model_Number,".txt",sep=""),intern=TRUE),"_Analysis_"))[,1]
+
+for(i in 1:44)
+{ 
+print(paste(i," ",Tissues[i],sep=""))
+Top_Genes = data[[i]][data[[i]]$qvalue <= 0.1,]
+if(nrow(Top_Genes) > 0)
+{
+png(paste("PLOTS_FOLDER_Model_",model_Number,"_SIG/plot_GTEx_",Tissues[i],"_vs_CD_liab.png",sep=""),width=390,height=210,units="mm",res=450)
+
+
+P1 = qqunif(data[[i]]$pvalue);
+plot(P1$x,P1$y,xlab="-log10(Expected)",ylab="-log10(Observed)",main=Tissues[i])
+abline(0,1,col="red")
+
+	Top_Genes = Top_Genes[order(Top_Genes$pvalue),]
+	genes = do.call("rbind",strsplit(as.character(Top_Genes$gene_id),"[.]"))[,1]
+	Top_Genes$gene_id = genes
+	G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id", "hgnc_symbol", "description"),values=genes,mart= mart)
+	rownames(G_list)=as.character(G_list[,1])
+	G_list=G_list[as.character(Top_Genes$gene_id),]
+	if(nrow(G_list) == 1){
+	text(head(sort(P1$x,decreasing=TRUE),n=nrow(Top_Genes)),-log10(Top_Genes$pvalue),labels=as.character(G_list[,2]),pos=2)
+	
+	} else {
+	pointLabel(head(sort(P1$x,decreasing=TRUE),n=nrow(Top_Genes)),-log10(Top_Genes$pvalue),labels=as.character(G_list[,2]),allowSmallOverlap=TRUE,doPlot=TRUE,method="GA")
+	}
+
+dev.off()
+} else {
+png(paste("PLOTS_FOLDER_Model_",model_Number,"/plot_GTEx_",Tissues[i],"_vs_CD_liab.png",sep=""),width=390,height=210,units="mm",res=450)
+
+
+P1 = qqunif(data[[i]]$pvalue);
+
+plot(P1$x,P1$y,xlab="-log10(Expected)",ylab="-log10(Observed)",main=Tissues[i])
+abline(0,1,col="red")
+dev.off()
+}
+
+}
+
